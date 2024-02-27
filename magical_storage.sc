@@ -49,9 +49,11 @@ give_storage_tome(targets) -> (
         if (empty_slot != null && ([36, 37, 38, 39, 40] ~empty_slot) == null,
             inventory_set(_, empty_slot, 1, 'clock', {
                 'isStorageTome' -> true,
+                'storedInvs' -> [],
                 'Enchantments' -> [{}],
                 'display' -> {
-                    'Name' -> encode_nbt('{"text": "Storage Tome", "color": "white", "italic": false}');
+                    'Name' -> encode_nbt('{"text": "Storage Tome", "color": "white", "italic": false}'),
+                    'Lore' -> encode_nbt(['{"text": "Linked Inventories: 0/8", "color": "gray", "italic": false}'])
                 }
             }),
             spawn('item', pos(_), {
@@ -60,9 +62,11 @@ give_storage_tome(targets) -> (
                     'Count' -> 1,
                     'tag' -> {
                         'isStorageTome' -> true,
+                        'storedInvs' -> [],
                         'Enchantments' -> [{}],
                         'display' -> {
-                            'Name' -> encode_nbt('{"text": "Storage Tome", "color": "white", "italic": false}');
+                            'Name' -> encode_nbt('{"text": "Storage Tome", "color": "white", "italic": false}'),
+                            'Lore' -> encode_nbt(['{"text": "Linked Inventories: 0/8", "color": "gray", "italic": false}'])
                         }
                     }
                 }
@@ -83,32 +87,31 @@ get_storage_loc() -> (
 );
 
 remove_storage_from_list(block_info) -> (
-    if (global_file: 'controllers'~block_info == null, return());
-    delete(global_file: 'controllers', global_file: 'controllers'~block_info);
+    if (global_file: 'controllers'~block_info == null,
+        return ()); delete(global_file: 'controllers', global_file: 'controllers'~block_info);
 
     // Drop a storage controller
     schedule(0, _(outer(block_info)) -> (
-            lectern = first(entity_area('item', [block_info:1, block_info:2, block_info:3] + [0.5, 0.5, 0.5], 0.2, 0.2, 0.2), query(_, 'nbt'):'Item':'id' == 'minecraft:lectern');
-            if (lectern != null,
-                modify(lectern, 'nbt_merge', 
-                    {
-                        'Item' -> {
-                            'tag' -> {
-                                'isStorageController' -> true,
-                                'Enchantments' -> [{}],
-                                'display' -> {
-                                    'Name' -> encode_nbt('{"text": "Storage Controller", "color": "white", "italic": false}');
-                                }
-                            }
+        lectern = first(entity_area('item', [block_info: 1, block_info: 2, block_info: 3] + [0.5, 0.5, 0.5], 0.2, 0.2, 0.2), query(_, 'nbt'): 'Item': 'id' == 'minecraft:lectern');
+        if (lectern != null,
+            modify(lectern, 'nbt_merge', {
+                'Item' -> {
+                    'tag' -> {
+                        'isStorageController' -> true,
+                        'Enchantments' -> [{}],
+                        'display' -> {
+                            'Name' -> encode_nbt('{"text": "Storage Controller", "color": "white", "italic": false}');
                         }
                     }
-                );
-            );
+                }
+            });
         );
-    );
+    ););
 );
 
-is_storage_controller(block_info) -> return(global_file: 'controllers'~block_info != null);
+is_storage_controller(block_info) ->
+    return (global_file: 'controllers'~block_info != null);
+
 // ----------------
 
 // ----[Events]----
@@ -117,8 +120,7 @@ __on_start() -> (
         write_file('controllers', 'json', {
             'controllers' -> []
         });
-    ); 
-    get_storage_loc()
+    ); get_storage_loc()
 );
 
 __on_close() -> (
@@ -140,24 +142,49 @@ __on_player_places_block(player, item_tuple, hand, block) -> (
 );
 
 // Link a Storage Controller to the slave inventories
+// Needs some fixes
+
 __on_player_right_clicks_block(player, item_tuple, hand, block, face, hitvec) -> (
-    if (hand != 'mainhand', return());
-    if (block != 'lectern' && inventory_has_items(block) == null, return());
-    print(player, 'test');
-    if (!is_storage_controller([query(player, 'dimension'), ...pos(block)]), return());
-    if (!item_tuple:2:'isStorageTome', return());
-    if (!query(player, 'sneaking'), return());
-    
-    if (item_tuple:2:'LinkedController' == null,
-        (
-            item_tuple:2:'LinkedController' = {'dimension' -> query(player, 'dimension'), 'pos' -> pos(block)};
-            inventory_set(player, query(player, 'selected_slot'), item_tuple:1, item_tuple:0, item_tuple:2);
-            particle('happy_villager', pos(player), 10, 1, 1, player);
-            print(player, 'Tome linked successfully!');
-        ),
-        print(player, 'Already Linked');
+
+    if (hand != 'mainhand',
+        return ());
+
+    if (item_tuple:0 == 'clock' && item_tuple:2:'isStorageTome' && query(player, 'sneaking'),
+        nbt = parse_nbt(item_tuple:2);
+
+        if (is_storage_controller([query(player, 'dimension'), ...pos(block)]),
+            if (block_data(pos(block)) ~ '' == null,
+                print(player, 'Empty Storage');
+                set(block, block, block_state(block), {''})
+            );
+        );
+
+        if (inventory_has_items(block) != null && length(nbt:'storedInvs') < 8,            
+            block_info = {'dimension' -> query(player, 'dimension'), 'pos' -> pos(block)};
+            if (nbt:'storedInvs' ~ block_info != null,
+                (
+                    print(player, 'Inventory already saved in the Storage Tome');
+                    return();
+                ),
+                (
+                    nbt:'storedInvs' += block_info;
+                    nbt:'display':'Lore' = [
+                        str('{"text": "Linked Inventories: %d/8", "color": "gray", "italic": false}', length(nbt:'storedInvs'))
+                    ];
+                    inventory_set(player, query(player, 'selected_slot'), item_tuple:1, item_tuple:0, encode_nbt(nbt));
+                    particle('happy_villager', pos(block) + [0.5, 0.5, 0.5], 10, 0.6, 0.6, player);
+                    print(player, 'Inventory stored successfully');
+                    return();
+                )
+            );
+        );
     );
+
+
+
 );
+
+
 
 // Handle the breaking of the Storage Controller
 __on_player_breaks_block(player, block) -> (

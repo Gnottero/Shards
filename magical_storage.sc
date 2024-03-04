@@ -49,11 +49,11 @@ give_storage_tome(targets) -> (
         if (empty_slot != null && ([36, 37, 38, 39, 40] ~empty_slot) == null,
             inventory_set(_, empty_slot, 1, 'clock', {
                 'isStorageTome' -> true,
+                'maxCap' -> 8,
                 'storedInvs' -> [],
                 'Enchantments' -> [{}],
                 'display' -> {
-                    'Name' -> encode_nbt('{"text": "Storage Tome", "color": "white", "italic": false}'),
-                    'Lore' -> encode_nbt(['{"text": "Linked Inventories: 0/8", "color": "gray", "italic": false}'])
+                    'Name' -> encode_nbt('{"text": "Storage Tome", "color": "white", "italic": false}')
                 }
             }),
             spawn('item', pos(_), {
@@ -62,11 +62,11 @@ give_storage_tome(targets) -> (
                     'Count' -> 1,
                     'tag' -> {
                         'isStorageTome' -> true,
+                        'maxCap' -> 8,
                         'storedInvs' -> [],
                         'Enchantments' -> [{}],
                         'display' -> {
-                            'Name' -> encode_nbt('{"text": "Storage Tome", "color": "white", "italic": false}'),
-                            'Lore' -> encode_nbt(['{"text": "Linked Inventories: 0/8", "color": "gray", "italic": false}'])
+                            'Name' -> encode_nbt('{"text": "Storage Tome", "color": "white", "italic": false}')
                         }
                     }
                 }
@@ -153,29 +153,43 @@ __on_player_right_clicks_block(player, item_tuple, hand, block, face, hitvec) ->
         nbt = parse_nbt(item_tuple:2);
 
         if (is_storage_controller([query(player, 'dimension'), ...pos(block)]),
-            if (block_data(pos(block)) ~ '' == null,
-                print(player, 'Empty Storage');
-                set(block, block, block_state(block), {''})
+            if (block_data(pos(block)) ~ 'Book' == null,
+                // print(player, 'Empty Storage');
+
+                // Write the fake book data using the data stored in the Storage Tome
+                states = block_state(block);
+                states:'has_book' = true;
+                set(pos(block), block, states, {'Book' -> {'id' -> 'clock', 'Count' -> 1, 'tag' -> item_tuple:2}});
+                inventory_set(player, query(player, 'selected_slot'), item_tuple:1 - 1, item_tuple:0, item_tuple:2);
+                return();
             );
         );
 
-        if (inventory_has_items(block) != null && length(nbt:'storedInvs') < 8,            
+        if (inventory_has_items(block) != null,            
             block_info = {'dimension' -> query(player, 'dimension'), 'pos' -> pos(block)};
+
+            // Remove the inventory from the list if the player is clicking on a storage block that was already saved
+
             if (nbt:'storedInvs' ~ block_info != null,
                 (
-                    print(player, 'Inventory already saved in the Storage Tome');
-                    return();
-                ),
-                (
-                    nbt:'storedInvs' += block_info;
-                    nbt:'display':'Lore' = [
-                        str('{"text": "Linked Inventories: %d/8", "color": "gray", "italic": false}', length(nbt:'storedInvs'))
-                    ];
+                    print(player, 'Inventory removed from the inventory list');
+                    delete(nbt: 'storedInvs', nbt: 'storedInvs'~block_info);
                     inventory_set(player, query(player, 'selected_slot'), item_tuple:1, item_tuple:0, encode_nbt(nbt));
-                    particle('happy_villager', pos(block) + [0.5, 0.5, 0.5], 10, 0.6, 0.6, player);
-                    print(player, 'Inventory stored successfully');
                     return();
                 )
+            );
+
+            // Add a new storage block if the amount of stored inventories is below max capacity
+
+            if (length(nbt:'storedInvs') < nbt:'maxCap',
+                nbt:'storedInvs' += block_info;
+                nbt:'display':'Lore' = [
+                    str('{"text": "Linked Inventories: %d/%d", "color": "gray", "italic": false}', length(nbt:'storedInvs'), nbt:'maxCap')
+                ];
+                inventory_set(player, query(player, 'selected_slot'), item_tuple:1, item_tuple:0, encode_nbt(nbt));
+                particle('happy_villager', pos(block) + [0.5, 0.5, 0.5], 10, 0.6, 0.6, player);
+                print(player, 'Inventory stored successfully');
+                return();
             );
         );
     );

@@ -154,7 +154,6 @@ __on_player_right_clicks_block(player, item_tuple, hand, block, face, hitvec) ->
 
         if (is_storage_controller([query(player, 'dimension'), ...pos(block)]),
             if (block_data(pos(block)) ~ 'Book' == null,
-                // print(player, 'Empty Storage');
 
                 // Write the fake book data using the data stored in the Storage Tome
                 states = block_state(block);
@@ -170,10 +169,13 @@ __on_player_right_clicks_block(player, item_tuple, hand, block, face, hitvec) ->
 
             // Remove the inventory from the list if the player is clicking on a storage block that was already saved
 
-            if (nbt:'storedInvs' ~ block_info != null,
+            if (nbt:'storedInvs' ~ block_info != null, 
                 (
                     print(player, 'Inventory removed from the inventory list');
                     delete(nbt: 'storedInvs', nbt: 'storedInvs'~block_info);
+                    nbt:'display':'Lore' = [
+                        str('{"text": "Linked Inventories: %d/%d", "color": "gray", "italic": false}', length(nbt:'storedInvs'), nbt:'maxCap')
+                    ];
                     inventory_set(player, query(player, 'selected_slot'), item_tuple:1, item_tuple:0, encode_nbt(nbt));
                     return();
                 )
@@ -194,8 +196,25 @@ __on_player_right_clicks_block(player, item_tuple, hand, block, face, hitvec) ->
         );
     );
 
-
-
+    if (is_storage_controller([query(player, 'dimension'), ...pos(block)]),
+    
+        if (block_data(pos(block)) ~ 'Book' == null, return());
+        if (!(block_data(pos(block)):'Book.tag.isStorageTome'), return());
+        if (!query(player, 'sneaking'), return());
+        
+        states = block_state(block);
+        states:'has_book' = false;
+        book_data = parse_nbt(block_data(pos(block)):'Book');
+        set(pos(block), block, states, {});
+        spawn('item', pos(player), {
+            'Item' -> {
+                'id' -> replace(book_data:'id', 'minecraft:'),
+                'Count' -> book_data:'Count',
+                'tag' -> encode_nbt(book_data:'tag')
+            }
+        });
+        return();
+    );
 );
 
 

@@ -79,6 +79,7 @@ give_storage_tome(targets) -> (
 
 // ----[Utility]----
 global_file = null;
+global_invalid_blocks = ['blast_furnace', 'furnace', 'smoker', 'brewing_stand', 'hopper'];
 
 get_storage_loc() -> (
     if (list_files('', 'json') ~'controllers' != null,
@@ -111,6 +112,62 @@ remove_storage_from_list(block_info) -> (
 
 is_storage_controller(block_info) ->
     return (global_file: 'controllers'~block_info != null);
+
+create_inventory_panel(player, book_data) -> (
+    try(
+        (
+            in_dimension(book_data:'storedInvs':(book_data:'Page'):'dimension',
+                block_pos = book_data:'storedInvs':(book_data:'Page'):'pos';
+                print(player, block(block_pos));
+                inv_screen = create_screen(player, 'generic_9x4', 'Storage Controller', _(screen, player, action, data) -> (
+                    
+                    if (['pickup', 'pickup_all', 'swap', 'quick_move', 'throw'] ~action != null && [range(27, 36)] ~(data: 'slot') != null,
+                        return('cancel');
+                    );
+
+                ));
+
+                task(_(outer(inv_screen)) -> (
+                    for(range(27, 36),
+                        if ([27, 31, 35] ~ _ == null,
+                            inventory_set(inv_screen, _, 1, 'gray_stained_glass_pane');
+                        );
+                        if (_ == 31,
+                            inventory_set(inv_screen, _, 1, 'paper', {
+                                'display' -> {
+                                    'Name' -> encode_nbt('{"text": "Search Item", "color": "white", "italic": false}');
+                                }
+                            });
+                        );
+
+                        if (_ == 27,
+                            inventory_set(inv_screen, _, 1, 'player_head', {
+                                'SkullOwner' -> 'MHF_ArrowLeft',
+                                'display' -> {
+                                    'Name' -> encode_nbt('{"text": "Previous Page", "color": "white", "italic": false}');
+                                }
+                            });
+                        );
+
+                        if (_ == 35,
+                            inventory_set(inv_screen, _, 1, 'player_head', {
+                                'SkullOwner' -> 'MHF_ArrowRight',
+                                'display' -> {
+                                    'Name' -> encode_nbt('{"text": "Next Page", "color": "white", "italic": false}');
+                                }
+                            });
+                        );
+                    );
+                ));
+
+            );
+        ),
+        'exception',
+        (
+            print(player, 'An error occurred while scanning the inventories. Please make sure that they exist');
+        )
+    )
+);
 
 // ----------------
 
@@ -149,22 +206,21 @@ __on_player_right_clicks_block(player, item_tuple, hand, block, face, hitvec) ->
     if (hand != 'mainhand',
         return ());
 
-    if (item_tuple:0 == 'clock' && item_tuple:2:'isStorageTome' && query(player, 'sneaking'),
+    if (item_tuple:0 == 'clock' && item_tuple:2:'isStorageTome',
         nbt = parse_nbt(item_tuple:2);
 
         if (is_storage_controller([query(player, 'dimension'), ...pos(block)]),
             if (block_data(pos(block)) ~ 'Book' == null,
-
-                // Write the fake book data using the data stored in the Storage Tome
                 states = block_state(block);
                 states:'has_book' = true;
-                set(pos(block), block, states, {'Book' -> {'id' -> 'clock', 'Count' -> 1, 'tag' -> item_tuple:2}});
-                inventory_set(player, query(player, 'selected_slot'), item_tuple:1 - 1, item_tuple:0, item_tuple:2);
-                return();
+                if (nbt ~ 'Page' ~ null, nbt:'Page' = 0);
+                set(pos(block), block, states, {'Book' -> {'id' -> 'clock', 'Count' -> 1, 'tag' -> encode_nbt(nbt)}});
+                inventory_set(player, query(player, 'selected_slot'), item_tuple:1 - 1, item_tuple:0, encode_nbt(nbt));
+                return('cancel');
             );
         );
 
-        if (inventory_has_items(block) != null,            
+        if (inventory_has_items(block) != null && query(player, 'sneaking') && global_invalid_blocks ~ block == null,            
             block_info = {'dimension' -> query(player, 'dimension'), 'pos' -> pos(block)};
 
             // Remove the inventory from the list if the player is clicking on a storage block that was already saved
@@ -198,26 +254,32 @@ __on_player_right_clicks_block(player, item_tuple, hand, block, face, hitvec) ->
 
     if (is_storage_controller([query(player, 'dimension'), ...pos(block)]),
     
-        if (block_data(pos(block)) ~ 'Book' == null, return());
+        if (block_data(pos(block)) ~ 'Book' == null, return('cancel'));
         if (!(block_data(pos(block)):'Book.tag.isStorageTome'), return());
-        if (!query(player, 'sneaking'), return());
-        
-        states = block_state(block);
-        states:'has_book' = false;
-        book_data = parse_nbt(block_data(pos(block)):'Book');
-        set(pos(block), block, states, {});
-        spawn('item', pos(player), {
-            'Item' -> {
-                'id' -> replace(book_data:'id', 'minecraft:'),
-                'Count' -> book_data:'Count',
-                'tag' -> encode_nbt(book_data:'tag')
-            }
-        });
-        return();
+
+        if (!query(player, 'sneaking'),
+            (
+                book_data = parse_nbt(block_data(pos(block)):'Book.tag');
+                create_inventory_panel(player, book_data);
+                return('cancel');
+            ),
+            (
+                states = block_state(block);
+                states:'has_book' = false;
+                book_data = parse_nbt(block_data(pos(block)):'Book');
+                set(pos(block), block, states, {});
+                spawn('item', pos(player), {
+                    'Item' -> {
+                        'id' -> replace(book_data:'id', 'minecraft:'),
+                        'Count' -> book_data:'Count',
+                        'tag' -> encode_nbt(book_data:'tag')
+                    }
+                });
+                return();
+            )
+        );
     );
 );
-
-
 
 // Handle the breaking of the Storage Controller
 __on_player_breaks_block(player, block) -> (
